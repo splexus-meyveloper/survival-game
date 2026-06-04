@@ -38,6 +38,9 @@ export class UsScene extends Phaser.Scene {
   }
 
   async create(): Promise<void> {
+    this.hazir = false;
+    this.uiMetinler = [];
+
     this.saveSystem = new SaveSystem();
     this.buildSystem = new BuildSystem();
     this.ekonomi = new EconomySystem();
@@ -113,13 +116,17 @@ export class UsScene extends Phaser.Scene {
 
   private gridCiz(): void {
     this.gridGfx.clear();
-    this.gridGfx.lineStyle(1, 0x1a3a5a, 0.6);
-
     for (let col = 0; col < ISO_GRID.genislik; col++) {
       for (let row = 0; row < ISO_GRID.yukseklik; row++) {
-        this.izoDortgenCiz(this.gridGfx, col, row, 0x0d1f3c, 0.8, 0x1a3a5a);
+        const renk = this.tileTonuHesapla(col, row);
+        this.izoDortgenCiz(this.gridGfx, col, row, renk, 0.92, 0x1a3a5a);
       }
     }
+  }
+
+  private tileTonuHesapla(col: number, row: number): number {
+    const tonlar = [0x0c1e3a, 0x0d1f3c, 0x0e2040, 0x0b1d38, 0x0f2144, 0x0d213e];
+    return tonlar[(col * 3 + row * 5 + Math.floor(col * row * 0.7)) % tonlar.length];
   }
 
   private izoDortgenCiz(
