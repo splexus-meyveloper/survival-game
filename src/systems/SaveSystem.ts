@@ -21,6 +21,8 @@ export interface OyunDurumu {
   toplamEleman: number;
   toplamKazanilanKredi: number; // istatistik
   toplamSefer: number;
+  toplamOldurme: number;        // tüm seferlerdeki toplam öldürme
+  karakterGelisim: Record<string, number>; // yukseltmeId -> mevcut seviye
 }
 
 // --- Soyut adapter arayüzü ---
@@ -90,6 +92,8 @@ export class SaveSystem {
       toplamEleman: 0,
       toplamKazanilanKredi: 0,
       toplamSefer: 0,
+      toplamOldurme: 0,
+      karakterGelisim: {},
     };
   }
 }

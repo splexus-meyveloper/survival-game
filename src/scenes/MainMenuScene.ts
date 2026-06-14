@@ -80,9 +80,8 @@ export class MainMenuScene extends Phaser.Scene {
 
   private menuButonlariOlustur(cx: number, height: number): void {
     const butonlar = [
-      { etiket: 'OYUNA BAŞLA', sahne: 'UsScene', renk: 0x1a6aff },
-      { etiket: 'SEFER (DEMO)', sahne: 'ExpeditionScene', renk: 0x226622 },
-      { etiket: 'KAYDI SİL', sahne: null, renk: 0x662222 },
+      { etiket: 'OYUNA BAŞLA', sahne: 'ExpeditionScene', renk: 0x1a6aff },
+      { etiket: 'KAYDI SİL',   sahne: null,              renk: 0x662222 },
     ];
 
     const baslangicY = height / 2 - 30;

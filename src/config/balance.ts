@@ -49,6 +49,16 @@ export const BINA_TANIMLARI: Record<string, BinaTanimi> = {
     yukselmeKatsayisi: 1.8,
     gridBoyutu: { w: 2, h: 2 },
   },
+  gelistirme_merkezi: {
+    id: 'gelistirme_merkezi',
+    ad: 'Geliştirme Merkezi',
+    maliyet: { hurda: 150, kristal: 5 },
+    krediBedeli: 600,
+    uretim: {},
+    maksKapasite: {},
+    yukselmeKatsayisi: 2.0,
+    gridBoyutu: { w: 2, h: 2 },
+  },
 };
 
 // --- Eleman (Worker) ---
@@ -154,6 +164,111 @@ export const ISO_GRID = {
 export const OFFLINE_URETIM = {
   maksCatchupSaniye: 8 * 3600, // max 8 saat aradan sonra üretim hesaplanır
 };
+
+// --- Karakter Yükseltme Sistemi ---
+
+export interface YukseltmeTanimi {
+  id: string;
+  ad: string;
+  icon: string;
+  aciklama: string;         // (%XX/seviye gibi sabit metin)
+  maksSeviyet: number;
+  // Satın alma maliyeti (mevcut seviyeye göre — 0 = lv1'e geçiş maliyeti)
+  maliyet: (mevcutSeviye: number) => { kredi: number; kristal: number };
+  // Yeni seviyede değer (oyun içi kullanım)
+  deger: (seviye: number) => number;
+  // Tooltip için mevcut/sonraki değer metni
+  degerMetni: (seviye: number) => string;
+}
+
+export const KARAKTER_YUKSELTMELERI: Record<string, YukseltmeTanimi> = {
+  saldiri_hasari: {
+    id: 'saldiri_hasari',
+    ad: 'Saldırı Hasarı',
+    icon: '⚔',
+    aciklama: '+%30 mermi hasarı / seviye',
+    maksSeviyet: 5,
+    maliyet: (lv) => ({
+      kredi:   Math.round(120 * Math.pow(2.2, lv)),
+      kristal: lv >= 3 ? (lv - 2) * 4 : 0,
+    }),
+    deger:     (lv) => 25 * (1 + lv * 0.30),
+    degerMetni: (lv) => `${Math.round(25 * (1 + lv * 0.30))} hasar`,
+  },
+
+  saldiri_hizi: {
+    id: 'saldiri_hizi',
+    ad: 'Saldırı Hızı',
+    icon: '⚡',
+    aciklama: '+%20 ateş hızı / seviye',
+    maksSeviyet: 5,
+    maliyet: (lv) => ({
+      kredi:   Math.round(150 * Math.pow(2.3, lv)),
+      kristal: lv >= 3 ? (lv - 2) * 3 : 0,
+    }),
+    deger:     (lv) => 1.2 * (1 + lv * 0.20),
+    degerMetni: (lv) => `${(1.2 * (1 + lv * 0.20)).toFixed(2)} atış/sn`,
+  },
+
+  maksimum_can: {
+    id: 'maksimum_can',
+    ad: 'Maksimum Can',
+    icon: '❤',
+    aciklama: '+30 can / seviye',
+    maksSeviyet: 6,
+    maliyet: (lv) => ({
+      kredi:   Math.round(80 * Math.pow(1.9, lv)),
+      kristal: 0,
+    }),
+    deger:     (lv) => 100 + lv * 30,
+    degerMetni: (lv) => `${100 + lv * 30} can`,
+  },
+
+  hareket_hizi: {
+    id: 'hareket_hizi',
+    ad: 'Hareket Hızı',
+    icon: '👟',
+    aciklama: '+%12 hız / seviye',
+    maksSeviyet: 4,
+    maliyet: (lv) => ({
+      kredi:   Math.round(200 * Math.pow(2.5, lv)),
+      kristal: lv * 2,
+    }),
+    deger:     (lv) => 200 * (1 + lv * 0.12),
+    degerMetni: (lv) => `${Math.round(200 * (1 + lv * 0.12))} px/sn`,
+  },
+
+  kritik_sans: {
+    id: 'kritik_sans',
+    ad: 'Kritik Vuruş',
+    icon: '💥',
+    aciklama: '+%12 kritik şans / seviye (2× hasar)',
+    maksSeviyet: 4,
+    maliyet: (lv) => ({
+      kredi:   Math.round(300 * Math.pow(2.4, lv)),
+      kristal: (lv + 1) * 3,
+    }),
+    deger:     (lv) => lv * 0.12,
+    degerMetni: (lv) => `%${Math.round(lv * 12)} kritik şans`,
+  },
+
+  menzil: {
+    id: 'menzil',
+    ad: 'Saldırı Menzili',
+    icon: '🎯',
+    aciklama: '+35px menzil / seviye',
+    maksSeviyet: 4,
+    maliyet: (lv) => ({
+      kredi:   Math.round(130 * Math.pow(2.1, lv)),
+      kristal: lv >= 2 ? (lv - 1) * 2 : 0,
+    }),
+    deger:     (lv) => 180 + lv * 35,
+    degerMetni: (lv) => `${180 + lv * 35}px menzil`,
+  },
+};
+
+// Geliştirme Merkezi olmadan erişilebilecek max yükseltme seviyesi
+export const TEMEL_MAX_YUKSELTME = 3;
 
 // --- Kayıt Versiyonu ---
 export const KAYIT_VERSIYONU = 1;
