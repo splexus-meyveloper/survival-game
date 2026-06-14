@@ -12,9 +12,9 @@ export class WeaponSystem {
   }
 
   /** En yakın hedefi seçer; menzil dışında null döner */
-  hedefSec(oyuncuX: number, oyuncuY: number, hedefler: Hedef[]): Hedef | null {
+  hedefSec(oyuncuX: number, oyuncuY: number, hedefler: Hedef[], menzil?: number): Hedef | null {
     let en_yakin: Hedef | null = null;
-    let minMesafe = SEFER.otomatikSaldiriMenzili;
+    let minMesafe = menzil ?? SEFER.otomatikSaldiriMenzili;
 
     for (const h of hedefler) {
       const dx = h.x - oyuncuX;

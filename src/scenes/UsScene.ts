@@ -1,15 +1,17 @@
-// Üs sahnesi — izometrik grid + bina yerleştirme (Görev 1 iskeleti)
+// Üs sahnesi — izometrik grid + bina yerleştirme + karakter geliştirme
 import Phaser from 'phaser';
 import { SaveSystem, OyunDurumu } from '@/systems/SaveSystem';
 import { BuildSystem } from '@/systems/BuildSystem';
 import { EconomySystem } from '@/systems/EconomySystem';
 import { InventorySystem } from '@/systems/InventorySystem';
 import { ProductionSystem } from '@/systems/ProductionSystem';
-import { ISO_GRID, BINA_TANIMLARI } from '@/config/balance';
+import {
+  ISO_GRID, BINA_TANIMLARI,
+  MALZEME_TURLERI, MalzemeTuru,
+  KARAKTER_YUKSELTMELERI, TEMEL_MAX_YUKSELTME,
+} from '@/config/balance';
 import { gridToScreen, screenToGrid, gridEkranBoyutu } from '@/iso/isoHelper';
-import { MALZEME_TURLERI, MalzemeTuru } from '@/config/balance';
 
-// İlk inşaat için seçili bina ID'si (arayüz açıldığında değişecek)
 const VARSAYILAN_BINA = 'hurda_toplama';
 
 export class UsScene extends Phaser.Scene {
@@ -20,18 +22,19 @@ export class UsScene extends Phaser.Scene {
   private uretim!: ProductionSystem;
   private durum!: OyunDurumu;
 
-  // Render
   private gridGfx!: Phaser.GameObjects.Graphics;
   private binaGfx!: Phaser.GameObjects.Graphics;
-  private hovGfx!: Phaser.GameObjects.Graphics;  // hover hücresi
+  private hovGfx!: Phaser.GameObjects.Graphics;
   private uiMetinler: Phaser.GameObjects.Text[] = [];
   private kameraOffsetX: number = 0;
   private kameraOffsetY: number = 0;
 
-  // Seçili bina modu
   private seciliBinaId: string = VARSAYILAN_BINA;
   private yerleştirmeModu: boolean = false;
   private hazir: boolean = false;
+
+  // Geliştirme paneli
+  private gelistirmePaneli: Phaser.GameObjects.Container | null = null;
 
   constructor() {
     super({ key: 'UsScene' });
@@ -40,6 +43,7 @@ export class UsScene extends Phaser.Scene {
   async create(): Promise<void> {
     this.hazir = false;
     this.uiMetinler = [];
+    this.gelistirmePaneli = null;
 
     this.saveSystem = new SaveSystem();
     this.buildSystem = new BuildSystem();
@@ -47,13 +51,11 @@ export class UsScene extends Phaser.Scene {
     this.envanter = new InventorySystem();
     this.uretim = new ProductionSystem();
 
-    // Kayıttan yükle
     this.durum = await this.saveSystem.yukle();
     this.ekonomi.setKredi(this.durum.kredi);
     this.envanter.yukle(this.durum.envanter);
     this.buildSystem.yukle(this.durum.binalar);
 
-    // Offline üretim
     const kazanilan = this.uretim.offlineUretimiHesapla(
       this.durum.binalar,
       this.durum.sonGorulme,
@@ -61,13 +63,11 @@ export class UsScene extends Phaser.Scene {
     );
     this.offlineKazanilanGoster(kazanilan);
 
-    // Grid merkezini hesapla
     const boyut = gridEkranBoyutu();
     const { width, height } = this.scale;
     this.kameraOffsetX = (width - boyut.x) / 2;
     this.kameraOffsetY = height / 2 - boyut.y / 4;
 
-    // Grafik katmanları
     this.gridGfx = this.add.graphics();
     this.binaGfx = this.add.graphics();
     this.hovGfx = this.add.graphics();
@@ -76,43 +76,30 @@ export class UsScene extends Phaser.Scene {
     this.binaGfx.setDepth(10);
     this.hovGfx.setDepth(20);
 
-    // UI
     this.uiOlustur();
     this.binaButonlariOlustur();
 
-    // Mouse/dokunma girdisi
     this.input.on('pointermove', this.hoverGuncelle, this);
     this.input.on('pointerdown', this.tiklandi, this);
 
-    // Ana menüye dön butonu
-    this.butonEkle(width - 10, 10, '← Menü', () => {
-      this.kaydet();
-      this.scene.start('MainMenuScene');
-    }, 'right');
-
-    // Sefer butonu
-    this.butonEkle(width - 10, 50, '⚔ Sefer', () => {
-      this.kaydet();
-      this.scene.start('ExpeditionScene');
-    }, 'right');
+    // Sağ üst butonlar
+    this.butonEkle(width - 10, 10,  '← Menü', () => { this.kaydet(); this.scene.start('MainMenuScene'); }, 'right');
+    this.butonEkle(width - 10, 58,  '⚔ Sefer', () => { this.kaydet(); this.scene.start('ExpeditionScene'); }, 'right');
+    this.butonEkle(width - 10, 106, '⚡ Geliştir', () => this.gelistirmePaneliniAc(), 'right');
 
     this.hazir = true;
   }
 
   update(_time: number, delta: number): void {
     if (!this.hazir) return;
-    // Aktif üretim
     this.uretim.guncelle(this.buildSystem.getBinalar(), this.envanter, delta);
-    // Ekonomi güncelle (fiyat dalgalanması)
     this.ekonomi.guncelle();
-    // UI yenile
     this.uiGuncelle();
-    // Binaları yeniden çiz (üretim görsel değişimi için ileride animasyon eklenecek)
     this.binaGfx.clear();
     this.binaCiz();
   }
 
-  // --- Grid çizimi ---
+  // ─── Grid ────────────────────────────────────────────────────────────────
 
   private gridCiz(): void {
     this.gridGfx.clear();
@@ -138,14 +125,12 @@ export class UsScene extends Phaser.Scene {
     const { x, y } = this.gridToEkran(col, row);
     const hw = ISO_GRID.hucreW / 2;
     const hh = ISO_GRID.hucreH / 2;
-
     gfx.fillStyle(dolguRenk, dolguAlfa);
     gfx.lineStyle(1, konturRenk, 0.8);
-    // fillPoints Vector2[] ister; moveTo/lineTo ile çiz
     gfx.beginPath();
-    gfx.moveTo(x, y - hh);
+    gfx.moveTo(x,      y - hh);
     gfx.lineTo(x + hw, y);
-    gfx.lineTo(x, y + hh);
+    gfx.lineTo(x,      y + hh);
     gfx.lineTo(x - hw, y);
     gfx.closePath();
     gfx.fillPath();
@@ -156,49 +141,43 @@ export class UsScene extends Phaser.Scene {
     for (const bina of this.buildSystem.getBinalar()) {
       const { x, y } = this.gridToEkran(bina.col, bina.row);
       const renkler: Record<string, number> = {
-        hurda_toplama: 0x888800,
+        hurda_toplama:      0x888800,
         biyokutle_ciftligi: 0x228822,
-        kristal_arastirma: 0x224488,
+        kristal_arastirma:  0x224488,
+        gelistirme_merkezi: 0x882288,
       };
       const renk = renkler[bina.id] ?? 0x555555;
-
-      // Basit izometrik kutu (placeholder — sprite sonra gelecek)
       const hw = ISO_GRID.hucreW / 2;
       const hh = ISO_GRID.hucreH / 2;
-      const yukYukseklik = 20 + bina.seviye * 8;
+      const yuk = 20 + bina.seviye * 8;
 
-      const izoPoly = (g: Phaser.GameObjects.Graphics, pts: number[][]): void => {
+      const poly = (g: Phaser.GameObjects.Graphics, pts: number[][]): void => {
         g.beginPath();
         g.moveTo(pts[0][0], pts[0][1]);
-        for (let pi = 1; pi < pts.length; pi++) g.lineTo(pts[pi][0], pts[pi][1]);
+        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
         g.closePath();
         g.fillPath();
       };
 
-      // Taban
       this.binaGfx.fillStyle(renk, 1);
-      izoPoly(this.binaGfx, [[x, y - hh], [x + hw, y], [x, y + hh], [x - hw, y]]);
+      poly(this.binaGfx, [[x, y - hh], [x + hw, y], [x, y + hh], [x - hw, y]]);
 
-      // Sol yüz
-      this.binaGfx.fillStyle(renk - 0x333333, 1);
-      izoPoly(this.binaGfx, [[x - hw, y], [x, y + hh], [x, y + hh - yukYukseklik], [x - hw, y - yukYukseklik]]);
+      this.binaGfx.fillStyle(Math.max(0, renk - 0x333333), 1);
+      poly(this.binaGfx, [[x - hw, y], [x, y + hh], [x, y + hh - yuk], [x - hw, y - yuk]]);
 
-      // Sağ yüz
-      this.binaGfx.fillStyle(renk - 0x111111, 1);
-      izoPoly(this.binaGfx, [[x + hw, y], [x, y + hh], [x, y + hh - yukYukseklik], [x + hw, y - yukYukseklik]]);
+      this.binaGfx.fillStyle(Math.max(0, renk - 0x111111), 1);
+      poly(this.binaGfx, [[x + hw, y], [x, y + hh], [x, y + hh - yuk], [x + hw, y - yuk]]);
 
-      // Üst yüz
-      this.binaGfx.fillStyle(renk + 0x111111, 1);
-      izoPoly(this.binaGfx, [[x, y - hh - yukYukseklik], [x + hw, y - yukYukseklik], [x, y + hh - yukYukseklik], [x - hw, y - yukYukseklik]]);
+      this.binaGfx.fillStyle(Math.min(0xffffff, renk + 0x111111), 1);
+      poly(this.binaGfx, [[x, y - hh - yuk], [x + hw, y - yuk], [x, y + hh - yuk], [x - hw, y - yuk]]);
 
-      // Seviye etiketi
-      this.add.text(x, y - hh - yukYukseklik - 10, `Sv${bina.seviye}`, {
+      this.add.text(x, y - hh - yuk - 10, `Sv${bina.seviye}`, {
         fontSize: '10px', color: '#ffffff',
       }).setOrigin(0.5).setDepth(30);
     }
   }
 
-  // --- Hover ---
+  // ─── Hover / Tıklama ─────────────────────────────────────────────────────
 
   private hoverGuncelle(pointer: Phaser.Input.Pointer): void {
     if (!this.yerleştirmeModu) { this.hovGfx.clear(); return; }
@@ -208,8 +187,6 @@ export class UsScene extends Phaser.Scene {
       this.izoDortgenCiz(this.hovGfx, col, row, 0x44aaff, 0.3, 0x44aaff);
     }
   }
-
-  // --- Tıklama ---
 
   private tiklandi(pointer: Phaser.Input.Pointer): void {
     if (!this.yerleştirmeModu) return;
@@ -226,16 +203,16 @@ export class UsScene extends Phaser.Scene {
     }
   }
 
-  // --- UI ---
+  // ─── UI ──────────────────────────────────────────────────────────────────
 
   private uiOlustur(): void {
     const gfx = this.add.graphics();
     gfx.fillStyle(0x000000, 0.65);
-    gfx.fillRoundedRect(8, 8, 200, 130, 6);
+    gfx.fillRoundedRect(8, 8, 210, 140, 6);
     gfx.setDepth(50);
 
-    for (let i = 0; i < 4; i++) {
-      const t = this.add.text(14, 14 + i * 26, '', {
+    for (let i = 0; i < 5; i++) {
+      const t = this.add.text(14, 14 + i * 25, '', {
         fontSize: '13px', color: '#aaddff',
       }).setDepth(51);
       this.uiMetinler.push(t);
@@ -244,12 +221,13 @@ export class UsScene extends Phaser.Scene {
   }
 
   private uiGuncelle(): void {
-    if (this.uiMetinler.length < 4) return;
+    if (this.uiMetinler.length < 5) return;
     const k = this.envanter;
     this.uiMetinler[0].setText(`💰 Kredi: ${this.ekonomi.getKredi()}`);
     this.uiMetinler[1].setText(`🔩 Hurda: ${Math.floor(k.getMiktar('hurda'))}`);
     this.uiMetinler[2].setText(`🌿 Biyokütle: ${Math.floor(k.getMiktar('biyokutle'))}`);
     this.uiMetinler[3].setText(`💎 Kristal: ${Math.floor(k.getMiktar('kristal'))}`);
+    this.uiMetinler[4].setText(`☠ Öldürme: ${this.durum.toplamOldurme ?? 0}`);
   }
 
   private binaButonlariOlustur(): void {
@@ -265,14 +243,219 @@ export class UsScene extends Phaser.Scene {
       }, 'left-bottom');
     });
 
-    // İptal modu
     this.butonEkle(10 + binaIdler.length * 130, height - 10, 'İPTAL', () => {
       this.yerleştirmeModu = false;
       this.hovGfx.clear();
     }, 'left-bottom');
   }
 
-  // --- Yardımcılar ---
+  // ─── Karakter Geliştirme Paneli ──────────────────────────────────────────
+
+  private gelistirmePaneliniAc(): void {
+    if (this.gelistirmePaneli) {
+      this.gelistirmePaneliniKapat();
+      return;
+    }
+
+    const hasGelistirmeMerkezi = this.buildSystem.getBinalar()
+      .some((b) => b.id === 'gelistirme_merkezi');
+    const gelisimMerkeziSeviye = this.buildSystem.getBinalar()
+      .find((b) => b.id === 'gelistirme_merkezi')?.seviye ?? 0;
+
+    const panelW = 320;
+    const { width, height } = this.scale;
+    const panelX = width - panelW - 10;
+    const panelY = 10;
+
+    const yukseltmeler = Object.values(KARAKTER_YUKSELTMELERI);
+    const satirYukseklik = 72;
+    const panelH = 48 + yukseltmeler.length * satirYukseklik + 16;
+
+    const container = this.add.container(panelX, panelY).setDepth(200);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x050e1a, 0.97);
+    bg.lineStyle(2, 0x5522aa, 1);
+    bg.fillRoundedRect(0, 0, panelW, Math.min(panelH, height - 20), 8);
+    bg.strokeRoundedRect(0, 0, panelW, Math.min(panelH, height - 20), 8);
+    container.add(bg);
+
+    container.add(
+      this.add.text(panelW / 2, 12, '⚡ Karakter Geliştirme', {
+        fontSize: '14px', fontStyle: 'bold', color: '#cc88ff',
+      }).setOrigin(0.5, 0),
+    );
+
+    if (!hasGelistirmeMerkezi) {
+      container.add(
+        this.add.text(panelW / 2, 36, '⚠ Geliştirme Merkezi inşa et\nüst seviye yükseltmeleri aç!', {
+          fontSize: '11px', color: '#ffaa44', align: 'center',
+        }).setOrigin(0.5, 0),
+      );
+    }
+
+    yukseltmeler.forEach((yukseltme, i) => {
+      const mevcutSeviye = this.durum.karakterGelisim?.[yukseltme.id] ?? 0;
+      const maksErisim = hasGelistirmeMerkezi
+        ? yukseltme.maksSeviyet
+        : Math.min(yukseltme.maksSeviyet, TEMEL_MAX_YUKSELTME);
+      const maksimumda = mevcutSeviye >= yukseltme.maksSeviyet;
+      const kilitli    = mevcutSeviye >= maksErisim && !maksimumda;
+
+      const y = 44 + i * satirYukseklik;
+
+      // Satır arka plan
+      const satirBg = this.add.graphics();
+      satirBg.fillStyle(mevcutSeviye > 0 ? 0x0d2840 : 0x0a1020, 0.9);
+      satirBg.fillRoundedRect(8, y, panelW - 16, satirYukseklik - 6, 4);
+      container.add(satirBg);
+
+      // İkon + isim
+      container.add(
+        this.add.text(16, y + 6, `${yukseltme.icon} ${yukseltme.ad}`, {
+          fontSize: '12px', fontStyle: 'bold', color: '#ffffff',
+        }),
+      );
+
+      // Seviye göstergesi (daireler)
+      for (let lv = 0; lv < yukseltme.maksSeviyet; lv++) {
+        const dairegfx = this.add.graphics();
+        const dolu = lv < mevcutSeviye;
+        const erisim = lv < maksErisim;
+        dairegfx.fillStyle(dolu ? 0x8844ff : (erisim ? 0x334466 : 0x221133), 1);
+        dairegfx.fillCircle(16 + lv * 14, y + 28, 5);
+        if (dolu) {
+          dairegfx.lineStyle(1, 0xcc88ff, 1);
+          dairegfx.strokeCircle(16 + lv * 14, y + 28, 5);
+        }
+        container.add(dairegfx);
+      }
+
+      // Mevcut / sonraki değer
+      const simdikiMetin = mevcutSeviye > 0
+        ? yukseltme.degerMetni(mevcutSeviye)
+        : 'Yok';
+      const sonrakiMetin = !maksimumda && !kilitli
+        ? `→ ${yukseltme.degerMetni(mevcutSeviye + 1)}`
+        : '';
+      container.add(
+        this.add.text(16, y + 40, `${simdikiMetin}  ${sonrakiMetin}`, {
+          fontSize: '10px', color: '#88aacc',
+        }),
+      );
+
+      // Maliyet ve buton
+      if (!maksimumda) {
+        const maliyet = yukseltme.maliyet(mevcutSeviye);
+        const maliyetMetni = kilitli
+          ? '🔒 Geliştirme Merkezi gerek'
+          : `${maliyet.kredi}₵${maliyet.kristal > 0 ? `  💎${maliyet.kristal}` : ''}`;
+        const maliyetRenk = kilitli ? '#ff6644'
+          : (this.ekonomi.getKredi() >= maliyet.kredi &&
+             this.envanter.getMiktar('kristal') >= maliyet.kristal)
+            ? '#aaffaa' : '#ff8888';
+
+        container.add(
+          this.add.text(panelW - 100, y + 6, maliyetMetni, {
+            fontSize: '10px', color: maliyetRenk, align: 'right',
+          }).setOrigin(1, 0),
+        );
+
+        if (!kilitli) {
+          const btnX = panelW - 84;
+          const btnGfx = this.add.graphics();
+          const canAfford = this.ekonomi.getKredi() >= maliyet.kredi &&
+                            this.envanter.getMiktar('kristal') >= maliyet.kristal;
+          const btnRenk = canAfford ? 0x442288 : 0x221133;
+          btnGfx.fillStyle(btnRenk, 1);
+          btnGfx.fillRoundedRect(btnX, y + 22, 72, 24, 4);
+          container.add(btnGfx);
+
+          const btnYazi = this.add.text(btnX + 36, y + 34, 'YÜKSELT', {
+            fontSize: '10px', color: canAfford ? '#cc88ff' : '#556677',
+          }).setOrigin(0.5);
+          container.add(btnYazi);
+
+          if (canAfford) {
+            const alan = this.add.rectangle(btnX + 36, y + 34, 72, 24)
+              .setInteractive({ useHandCursor: true });
+            container.add(alan);
+            alan.on('pointerover', () => { btnGfx.clear(); btnGfx.fillStyle(0x6633bb, 1); btnGfx.fillRoundedRect(btnX, y + 22, 72, 24, 4); });
+            alan.on('pointerout',  () => { btnGfx.clear(); btnGfx.fillStyle(0x442288, 1); btnGfx.fillRoundedRect(btnX, y + 22, 72, 24, 4); });
+            alan.on('pointerdown', () => this.yukseltmeYap(yukseltme.id, gelisimMerkeziSeviye));
+          }
+        }
+      } else {
+        container.add(
+          this.add.text(panelW - 16, y + 28, '✓ MAKS', {
+            fontSize: '10px', color: '#44ffaa',
+          }).setOrigin(1, 0.5),
+        );
+      }
+    });
+
+    // Kapat butonu
+    const kapatY = Math.min(panelH, height - 20) - 32;
+    const kapatAlan = this.add.rectangle(panelW / 2, kapatY + 12, 80, 24)
+      .setInteractive({ useHandCursor: true });
+    const kapatGfx = this.add.graphics();
+    kapatGfx.fillStyle(0x3a1010, 1);
+    kapatGfx.fillRoundedRect(panelW / 2 - 40, kapatY, 80, 24, 4);
+    container.add(kapatGfx);
+    container.add(
+      this.add.text(panelW / 2, kapatY + 12, '✕ Kapat', {
+        fontSize: '10px', color: '#ff8888',
+      }).setOrigin(0.5),
+    );
+    container.add(kapatAlan);
+    kapatAlan.on('pointerdown', () => this.gelistirmePaneliniKapat());
+
+    this.gelistirmePaneli = container;
+  }
+
+  private gelistirmePaneliniKapat(): void {
+    if (this.gelistirmePaneli) {
+      this.gelistirmePaneli.destroy(true);
+      this.gelistirmePaneli = null;
+    }
+  }
+
+  private yukseltmeYap(yukseltmeId: string, _gelisimSeviye: number): void {
+    const tanim = KARAKTER_YUKSELTMELERI[yukseltmeId];
+    if (!tanim) return;
+
+    if (!this.durum.karakterGelisim) this.durum.karakterGelisim = {};
+    const mevcutSeviye = this.durum.karakterGelisim[yukseltmeId] ?? 0;
+    if (mevcutSeviye >= tanim.maksSeviyet) return;
+
+    const maliyet = tanim.maliyet(mevcutSeviye);
+
+    if (!this.ekonomi.harca(maliyet.kredi)) {
+      this.bildirim('Yeterli kredi yok!', '#ff4444');
+      return;
+    }
+    if (maliyet.kristal > 0 && !this.envanter.cikar('kristal', maliyet.kristal)) {
+      // Kredit geri ver
+      this.ekonomi.setKredi(this.ekonomi.getKredi() + maliyet.kredi);
+      this.bildirim('Yeterli kristal yok!', '#ff4444');
+      return;
+    }
+
+    this.durum.karakterGelisim[yukseltmeId] = mevcutSeviye + 1;
+    this.kaydet();
+
+    const yeniDeger = tanim.degerMetni(mevcutSeviye + 1);
+    this.bildirim(
+      `${tanim.icon} ${tanim.ad} Seviye ${mevcutSeviye + 1}! (${yeniDeger})`,
+      '#cc88ff',
+    );
+
+    // Paneli yenile
+    this.gelistirmePaneliniKapat();
+    this.gelistirmePaneliniAc();
+  }
+
+  // ─── Yardımcılar ─────────────────────────────────────────────────────────
 
   private gridToEkran(col: number, row: number): { x: number; y: number } {
     const pos = gridToScreen(col, row);
